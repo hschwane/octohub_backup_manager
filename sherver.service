@@ -21,11 +21,8 @@ After=multi-user.target
 [Service]
 Type=simple
 
-User=sherver
-Group=sherver
-
-WorkingDirectory=/home/sherver/sherver/
-ExecStart=/home/sherver/sherver/sherver.sh
+WorkingDirectory=/root/octohub_backup_manager
+ExecStart=/root/octohub_backup_manager/sherver.sh 80
 ExecStop=/usr/bin/bash -c "kill $(cat /tmp/sherver.pid) && rm -f /tmp/sherver.pid /tmp/sherver.log"
 
 Restart=on-failure
