@@ -25,7 +25,7 @@ if [ "$REQUEST_METHOD" = 'POST' ]; then
 		backup_file="${backup_path}/octohub_backup_$(date +"%Y-%m-%d_%H-%M-%S").gz"
 		size=$(blockdev --getsize64 $main_drive)
 		echo "1" >> $temp_state_file && \
-		dd if=$main_drive bs=16M conv=sync,noerror | pv -f -s $size -F '%t %b %a %e' 2>$temp_progress_file | pigz -c > $backup_file && sync && \
+		dd if=$main_drive bs=16M conv=noerror,sparse iflag=nocache oflag=nocache | pv -f -s $size -F '%t %b %a %e' 2>$temp_progress_file | gzip -c > $backup_file && sync && \
 		rm $temp_state_file &
 		add_header 'Content-Type' 'text/plain'
 		send_response 200 "Command executed successfully!"
@@ -37,7 +37,7 @@ if [ "$REQUEST_METHOD" = 'POST' ]; then
 		backup_file="${backup_path}/${parameters}"
 		size=$(stat -c%s "$backup_file")
 		echo "2" >> $temp_state_file && \
-		pigz -cdk $backup_file | pv -f -s $size -F '%t %b %a %e' 2>$temp_progress_file | dd of=$main_drive bs=16M && sync && \
+		gzip -cdk $backup_file | pv -f -s $size -F '%t %b %a %e' 2>$temp_progress_file | dd of=$main_drive bs=16M && sync && \
 		rm $temp_state_file &
 		add_header 'Content-Type' 'text/plain'
 		send_response 200 "Command executed successfully!"
