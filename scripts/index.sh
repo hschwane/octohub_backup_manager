@@ -4,93 +4,119 @@ set -efu
 
 init_environment
 
+main_drive="/dev/sdc1"
+backup_path="/home/hendrik/sherver/test"
+temp_state_file="/tmp/octohub_backup_state.tmp"
+temp_progress_file="/tmp/octohub_progress.tmp"
+
 if [ "$REQUEST_METHOD" = 'POST' ]; then
-	add_header 'Content-Type' 'text/plain'
-	send_response 200 "You just sent me '$REQUEST_BODY'!
-	How kind of you <3"
+
+	read -r command parameters <<< "$REQUEST_BODY"
+
+	if [ "$command" = "reboot" ]; then
+	    reeboot
+		add_header 'Content-Type' 'text/plain'
+		send_response 200 "Command executed successfully!"
+	elif [ "$command" = "shutdown" ]; then
+	    shutdown -h now
+		add_header 'Content-Type' 'text/plain'
+		send_response 200 "Command executed successfully!"
+	elif [ "$command" = "start_backup" ]; then
+		backup_file="${backup_path}/octohub_backup_$(date +"%Y-%m-%d_%H-%M-%S").gz"
+		size=$(blockdev --getsize64 $main_drive)
+		echo "1" >> $temp_state_file && \
+		dd if=$main_drive bs=16M conv=sync,noerror | pv -f -s $size -F '%t %b %a %e' 2>$temp_progress_file | pigz -c > $backup_file && sync && \
+		rm $temp_state_file &
+		add_header 'Content-Type' 'text/plain'
+		send_response 200 "Command executed successfully!"
+	elif [ "$command" = "remove_backup" ]; then
+		rm ${backup_path}/${parameters}
+		add_header 'Content-Type' 'text/plain'
+		send_response 200 "removed ${backup_path}/${parameters}"
+	elif [ "$command" = "restore_backup" ]; then
+		backup_file="${backup_path}/${parameters}"
+		size=$(stat -c%s "$backup_file")
+		echo "2" >> $temp_state_file && \
+		pigz -cdk $backup_file | pv -f -s $size -F '%t %b %a %e' 2>$temp_progress_file | dd of=$main_drive bs=16M && sync && \
+		rm $temp_state_file &
+		add_header 'Content-Type' 'text/plain'
+		send_response 200 "Command executed successfully!"
+	else
+		add_header 'Content-Type' 'text/plain'
+		send_error 500
+	fi
+
+
 elif [ "$REQUEST_METHOD" != 'GET' ]; then
 	send_error 405
 fi
 
-all_params=''
-for key in "${!URL_PARAMETERS[@]}"; do
-	all_params=$"$all_params$key: ${URL_PARAMETERS[$key]}
-"
-done
+HEAD_TEMPLATE=" <title>octohub backup service</title>
+				<meta name=\"description\" content=\"octohub backup service\">"
 
-HEAD_TEMPLATE=$(cat <<EOF
-	<title>Sherver example</title>
-	<meta name="description" content="Sherver example">
-EOF
-)
+BODY_TEMPLATE="<h2>octohub backup service</h2>"
 
-HEADER_TEMPLATE='<h1>Sherver example</h1>'
+show_reboot="true"
+if [ -e "$temp_state_file" ]; then
+	content=$(cat "$temp_state_file")
+	if [ "$content" == "1" ]; then
+		progress=$(sed 's/\r/\n/g' $temp_progress_file | tail -n1)
+		BODY_TEMPLATE+="
+			<p>Creating new backup, please wait...</p>
+			<p>${progress}</p>
+			<script>setTimeout(()=>location.reload(), 2000)</script>"
+		show_reboot="false"
+	elif [ "$content" == "2" ]; then
+		progress=$(sed 's/\r/\n/g' $temp_progress_file | tail -n1)
+		BODY_TEMPLATE+="
+			<p>Restoring backup, please wait...</p>
+			<p>${progress}</p>
+			<script>setTimeout(()=>location.reload(), 2000)</script>"
+		show_reboot="false"
+	else
+		BODY_TEMPLATE+="
+			<p>Something went wrong with the temp file, please restart the system</p>
+		"
+	fi
+else
+	if [ ! -d "$backup_path" ]; then
+		BODY_TEMPLATE+="<p>The folder ${backup_path} does not exist.</p>"
+	else
+		BODY_TEMPLATE+="
+			<div>
+				<button onclick='makeBackup()'>Create Backup</button>
+			</div>
+		"
 
-BODY_TEMPLATE=$(cat <<EOF
-	<section>
-		<h2>Link to awesome page</h2>
-		<ul>
-			<li><a href="/page.sh?page=page.html">awesome page via script</a></li>
-			<li><a href="/file/pages/page.html">awesome page via direct access to file</a></li>
-		</ul>
-	</section>
+		available_backups=$(ls -1 "$backup_path" | sort)
 
-	<section>
-		<h2>Script parameters</h2>
-		Requested URL (try with <a href="/index.sh?test=youpi&answer=42"><code>index.sh?test=youpi&answer=42</code></a>):
-		<pre>
-	REQUESTED URL:
-$REQUEST_URL
-	BASE URL:
-$URL_BASE
-	PARAMETERS:
-$all_params
-	FULL REQUEST:
-$REQUEST_FULL_STRING
-		</pre>
-	</section>
+		BODY_TEMPLATE+="<table>"
+		OLDIFS=$IFS
+		IFS=$'\n'
+		for file in $available_backups; do
+		    BODY_TEMPLATE+="
+				<tr>
+					<th>$file</th>
+					<th>$(ls -lh ${backup_path}/${file} | awk '{print $5}' )</th>
+					<th><button onclick='restoreBackup(\"${file}\")'>restore</button><th>
+					<th><button onclick='removeBackup(\"${file}\")'>remove</button><th>
+				</tr>"
+		done
+		IFS=$OLDIFS
+		BODY_TEMPLATE+="</table>"
+	fi
+fi
 
-	<section>
-		<h2>POST request</h2>
-		<p>Fill the input below and click on the <em>"Send"</em> button, and check the result!</p>
-		<input type="text" placeholder="Enter something" name="post-input" />
-		<input type="submit" value="Send POST request" name="post-button" />
-		<pre name="post-pre">
-		</pre>
-	</section>
+if [ "$show_reboot" == "true" ]; then
+	BODY_TEMPLATE+="
+	<div>
+		<button onclick='reboot()'>Reboot</button>
+		<button onclick='shutdown()'>Shutdown</button>
+	</div>
+	"
+fi
 
-	<section>
-		<h2>Image example</h2>
-		<p>Below you can find an example image that is automatically streamed by <em>Sherver</em>. Click to see full size.</p>
-		<figure>
-			<a href="/file/venise.webp"><img src="/file/venise.webp" alt="" style="width:40%"></a>
-			<figcaption>Venise, Italy. CC-BY</figcaption>
-		</figure> 
-	</section>
-EOF
-)
-
-FOOTER_TEMPLATE=''
-
-INLINE_SCRIPT=$(cat <<EOF
-	document.addEventListener("DOMContentLoaded", function() {
-		var textInput = document.querySelector("[name='post-button']");
-		textInput.addEventListener("click", function() {
-			fetch("/", {
-				method: "POST",
-				headers: { "Content-Type": "text/plain" },
-				body: document.querySelector("[name='post-input']").value
-			}).then(function(response) {
-				return response.text()
-			}).then(function(contents) {
-				document.querySelector("[name='post-pre']").textContent = contents;
-			})
-		});
-	});
-EOF
-)
-
-export HEAD_TEMPLATE HEADER_TEMPLATE BODY_TEMPLATE FOOTER_TEMPLATE INLINE_SCRIPT
+export HEAD_TEMPLATE BODY_TEMPLATE
 
 html=$(envsubst < 'templates/template.html')
 
