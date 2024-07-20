@@ -14,7 +14,7 @@ if [ "$REQUEST_METHOD" = 'POST' ]; then
 	read -r command parameters <<< "$REQUEST_BODY"
 
 	if [ "$command" = "reboot" ]; then
-	    reeboot
+	    reboot
 		add_header 'Content-Type' 'text/plain'
 		send_response 200 "Command executed successfully!"
 	elif [ "$command" = "shutdown" ]; then
