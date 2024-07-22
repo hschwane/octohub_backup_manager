@@ -4,8 +4,8 @@ set -efu
 
 init_environment
 
-main_drive="/dev/sdc1"
-backup_path="/home/hendrik/sherver/test"
+main_drive="/dev/disk/by-id/e838b373-87da-4135-bf99-65d47d29192b"
+backup_path="/media/data/octohub_backups"
 temp_state_file="/tmp/octohub_backup_state.tmp"
 temp_progress_file="/tmp/octohub_progress.tmp"
 
